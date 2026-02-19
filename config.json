@@ -1,0 +1,8 @@
+{
+  "token": "MTQ2ODI0MDkyMTU1NTUwNTIzMw.GGfycc._WlPI6OqQ3kQxucqUKZoZXpLjKXUQmW1CVVoVM",
+  "xp_per_message": 2.5,
+  "min_message_length": 5,
+  "base_xp_per_level": 20,
+  "xp_growth_percent": 15,
+  "admin_role_name": "Administrator"
+}

@@ -1,0 +1,86 @@
+{
+  "1150815334610260099": {
+    "xp": 388.5,
+    "level": 23,
+    "messages": 86,
+    "warns": 0,
+    "money": 873,
+    "cooldowns": {
+      "work": 1770480070.964903,
+      "crime": 1770446681.8928063,
+      "rob": 1770542387.1765401
+    }
+  },
+  "235148962103951360": {
+    "xp": 0.0,
+    "level": 1,
+    "messages": 0,
+    "warns": 0,
+    "money": 0,
+    "cooldowns": {}
+  },
+  "1416334475591290940": {
+    "xp": 27.5,
+    "level": 18,
+    "messages": 41,
+    "warns": 0,
+    "money": 30,
+    "cooldowns": {}
+  },
+  "931571762225897502": {
+    "xp": 85.0,
+    "level": 16,
+    "messages": 4,
+    "warns": 0,
+    "money": 0,
+    "cooldowns": {}
+  },
+  "643441104318103565": {
+    "xp": 0.0,
+    "level": 1,
+    "messages": 0,
+    "warns": 0,
+    "money": 0,
+    "cooldowns": {}
+  },
+  "1468240921555505233": {
+    "xp": 0,
+    "level": 0,
+    "messages": 0,
+    "warns": 0,
+    "money": 0,
+    "cooldowns": {}
+  },
+  "1441332721077977089": {
+    "xp": 2.5,
+    "level": 0,
+    "messages": 1,
+    "warns": 0,
+    "money": 0,
+    "cooldowns": {}
+  },
+  "235088799074484224": {
+    "xp": 0,
+    "level": 0,
+    "messages": 0,
+    "warns": 0,
+    "money": 1,
+    "cooldowns": {}
+  },
+  "1073601272734826637": {
+    "xp": 2.5,
+    "level": 0,
+    "messages": 1,
+    "warns": 0,
+    "money": 0,
+    "cooldowns": {}
+  },
+  "1466812691367858352": {
+    "xp": 5.0,
+    "level": 0,
+    "messages": 2,
+    "warns": 0,
+    "money": 0,
+    "cooldowns": {}
+  }
+}
