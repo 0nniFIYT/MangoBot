@@ -10,7 +10,6 @@ import random
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from gtts import gTTS
 
 # ---------------- CONFIG ----------------
 
@@ -52,6 +51,14 @@ def ensure_user(uid):
     data[uid].setdefault("cooldowns", {})
 
 # ---------------- HELPERS ----------------
+
+def check_level_up(uid):
+    ensure_user(uid)
+    user = data[str(uid)]
+
+    while user["xp"] >= xp_needed(user["level"]):
+        user["xp"] -= xp_needed(user["level"])
+        user["level"] += 1
 
 def xp_needed(level):
     return math.floor(BASE_XP * ((1 + XP_GROWTH) ** level))
@@ -100,18 +107,15 @@ def check_cooldown(uid, key, cooldown_seconds):
 from gtts import gTTS
 from concurrent.futures import ThreadPoolExecutor
 
-# ThreadPool for non-blocking TTS
 executor = ThreadPoolExecutor()
 
-# synchronous TTS
-def generate_tts(text, filename):
-    tts = gTTS(text=text, lang="fi")
+def generate_tts(text: str, filename: str, lang: str = "fi"):
+    tts = gTTS(text=text, lang=lang)
     tts.save(filename)
 
-# async wrapper for TTS
-async def generate_tts_async(text, filename):
+async def generate_tts_async(text: str, filename: str, lang: str = "fi"):
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(executor, generate_tts, text, filename)
+    await loop.run_in_executor(executor, generate_tts, text, filename, lang)
 
 # ---------------- BOT ----------------
 
@@ -131,11 +135,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 # ThreadPool for non-blocking TTS
 executor = ThreadPoolExecutor()
-
-# synchronous TTS
-def generate_tts(text, filename, lang="fi"):
-    tts = gTTS(text=text, lang=lang)
-    tts.save(filename)
 
 # async wrapper for TTS
 async def generate_tts_async(text, filename, lang="fi"):
@@ -243,29 +242,6 @@ async def say(interaction: discord.Interaction, text: str, language: str = "fi")
         ephemeral=True
     )
 
-
-# ---------------- XP SYSTEM ----------------
-
-@bot.event
-async def on_message(message):
-    if message.author.bot or not message.guild:
-        return
-    if len(message.content) < MIN_MSG_LEN:
-        return
-
-    ensure_user(message.author.id)
-    u = data[str(message.author.id)]
-
-    u["messages"] += 1
-    u["xp"] += XP_PER_MESSAGE
-
-    while u["xp"] >= xp_needed(u["level"]):
-        u["xp"] -= xp_needed(u["level"])
-        u["level"] += 1
-
-    save_data()
-    await bot.process_commands(message)
-
 # ---------------- USER COMMANDS ----------------
 
 @bot.tree.command(name="xp")
@@ -310,7 +286,7 @@ async def leaderboard(interaction: discord.Interaction, type: app_commands.Choic
         key = lambda x: x[1]["messages"]
         title = "💬 Message Leaderboard"
     else:
-        key = lambda x: (x[1]["level"], x[1]["xp"])
+        key = lambda x: x[1]["level"] * 1_000_000 + x[1]["xp"]
         title = "🏆 XP & Level Leaderboard"
 
     sorted_users = sorted(data.items(), key=key, reverse=True)
@@ -407,7 +383,7 @@ async def rob(interaction: discord.Interaction, user: discord.Member):
     if target_money <= 0:
         await interaction.response.send_message(f"❌ {user.mention} has no money to rob.")
         return
-    stolen = random.randint(0, target_money)
+    stolen = random.randint(1, target_money)
     data[str(interaction.user.id)]["money"] += stolen
     data[str(user.id)]["money"] -= stolen
     save_data()
@@ -512,7 +488,7 @@ async def warns(interaction: discord.Interaction, user: discord.Member):
 
 @bot.tree.command(name="to")
 @admin_only()
-async def timeout(interaction: discord.Interaction, user: discord.Member, time: str):
+async def timeout(interaction: discord.Interaction, user: discord.Member, duration: str):
     delta = parse_time(time)
     until = None if delta is None else discord.utils.utcnow() + delta
     await user.timeout(until)
@@ -667,6 +643,84 @@ async def console_listener():
 
 
 
+# ---------------- SOUND COMMAND ----------------
+
+@bot.tree.command(name="sound", description="Play an MP3 file from the bot folder")
+@admin_only()
+@app_commands.describe(filename="MP3 file name (example: test.mp3)")
+async def sound(interaction: discord.Interaction, filename: str):
+
+    voice_client = interaction.guild.voice_client
+
+    if not voice_client:
+        await interaction.response.send_message(
+            "❌ Connect me to a voice channel first with /mango-join",
+            ephemeral=True
+        )
+        return
+
+    # Only allow simple filenames (no paths)
+    if not filename.lower().endswith(".mp3") or "/" in filename or "\\" in filename:
+        await interaction.response.send_message(
+            "❌ Only .mp3 files from the bot folder are allowed.",
+            ephemeral=True
+        )
+        return
+
+    # Get folder where THIS python file is located
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(base_dir, filename)
+
+    if not os.path.isfile(file_path):
+        await interaction.response.send_message(
+            f"❌ File `{filename}` not found in bot folder.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer()
+
+    if voice_client.is_playing():
+        voice_client.stop()
+
+    voice_client.play(discord.FFmpegPCMAudio(file_path))
+
+    await interaction.followup.send(
+        f"🔊 Playing `{filename}`.",
+        ephemeral=True
+    )
+
+    
+    @bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    if len(message.content) < MIN_MSG_LEN:
+        return
+
+    ensure_user(message.author.id)
+    user = data[str(message.author.id)]
+
+    user["xp"] += XP_PER_MESSAGE
+    user["messages"] += 1
+
+    check_level_up(message.author.id)
+    save_data()
+
+    await bot.process_commands(message)
+    
+@bot.tree.command(name="leave")
+@admin_only()
+async def leave(interaction: discord.Interaction):
+    vc = interaction.guild.voice_client
+    if not vc:
+        await interaction.response.send_message("❌ Not connected.", ephemeral=True)
+        return
+    await vc.disconnect()
+    await interaction.response.send_message("👋 Disconnected.", ephemeral=True)
+    
+    
 # ---------------- RUN ----------------
 
 bot.run(TOKEN)
