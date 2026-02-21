@@ -288,7 +288,6 @@ async def mango_join(interaction: discord.Interaction):
 
 # ---------------- SAY COMMAND ----------------
 @bot.tree.command(name="say", description="Make the bot speak in VC")
-@admin_only()
 @app_commands.describe(
     text="Text to speak",
     language="Optional language (default: Finnish)"
