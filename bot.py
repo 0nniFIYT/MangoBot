@@ -10,13 +10,14 @@ import random
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from gtts import gTTS
 
 # ---------------- CONFIG ----------------
 
 with open("config.json", "r") as f:
     config = json.load(f)
 
-TOKEN = config["token"]
+TOKEN = os.getenv("DISCORD_BOT_TOKEN") or config.get("token", "")
 XP_PER_MESSAGE = config["xp_per_message"]
 MIN_MSG_LEN = config["min_message_length"]
 BASE_XP = config["base_xp_per_level"]
@@ -51,6 +52,111 @@ def ensure_user(uid):
     data[uid].setdefault("cooldowns", {})
 
 # ---------------- HELPERS ----------------
+class SoundBoard(discord.ui.View):
+    def __init__(self, sound_files, page=0):
+        super().__init__(timeout=120)
+        self.sound_files = sound_files
+        self.page = page
+        self.per_page = 23  # 25 max components - 2 nav buttons
+        self.total_pages = (len(sound_files) - 1) // self.per_page + 1
+        self.build_page()
+
+    def build_page(self):
+        self.clear_items()
+
+        start = self.page * self.per_page
+        end = start + self.per_page
+        current_sounds = self.sound_files[start:end]
+
+        # Sound buttons (5 per row)
+        for index, sound in enumerate(current_sounds):
+            row = index // 5
+            self.add_item(SoundButton(sound, row))
+
+        # Navigation row (row 4)
+        if self.total_pages > 1:
+
+            if self.page > 0:
+                self.add_item(PrevButton())
+
+            if self.page < self.total_pages - 1:
+                self.add_item(NextButton())
+
+
+class PrevButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            label="⬅ Previous",
+            style=discord.ButtonStyle.secondary,
+            row=4
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: SoundBoard = self.view
+        view.page -= 1
+        view.build_page()
+
+        await interaction.response.edit_message(
+            content=f"🎵 **Soundboard** — Page {view.page + 1} / {view.total_pages}",
+            view=view
+        )
+
+
+class NextButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            label="Next ➡",
+            style=discord.ButtonStyle.secondary,
+            row=4
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: SoundBoard = self.view
+        view.page += 1
+        view.build_page()
+
+        await interaction.response.edit_message(
+            content=f"🎵 **Soundboard** — Page {view.page + 1} / {view.total_pages}",
+            view=view
+        )
+
+
+class SoundButton(discord.ui.Button):
+    def __init__(self, filename: str, row: int):
+        label = filename.replace(".mp3", "")
+
+        super().__init__(
+            label=label,
+            style=discord.ButtonStyle.primary,
+            row=row
+        )
+
+        self.filename = filename
+
+    async def callback(self, interaction: discord.Interaction):
+
+        voice_client = interaction.guild.voice_client
+
+        if not voice_client:
+            await interaction.response.send_message(
+                "❌ Connect me to a voice channel first with /mango-join",
+                ephemeral=True
+            )
+            return
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        sounds_dir = os.path.join(base_dir, "sounds")
+        file_path = os.path.join(sounds_dir, self.filename)
+
+        if voice_client.is_playing():
+            voice_client.stop()
+
+        voice_client.play(discord.FFmpegPCMAudio(file_path))
+
+        await interaction.response.send_message(
+            f"🔊 Playing `{self.filename}`",
+            ephemeral=True
+        )
 
 def check_level_up(uid):
     ensure_user(uid)
@@ -104,9 +210,6 @@ def check_cooldown(uid, key, cooldown_seconds):
 
 # ---------------- VOICE / TTS ----------------
 
-from gtts import gTTS
-from concurrent.futures import ThreadPoolExecutor
-
 executor = ThreadPoolExecutor()
 
 def generate_tts(text: str, filename: str, lang: str = "fi"):
@@ -129,17 +232,6 @@ async def on_ready():
     bot.loop.create_task(console_listener())  # Start console system
 
 # ---------------- VOICE COMMANDS ----------------
-
-from gtts import gTTS
-from concurrent.futures import ThreadPoolExecutor
-
-# ThreadPool for non-blocking TTS
-executor = ThreadPoolExecutor()
-
-# async wrapper for TTS
-async def generate_tts_async(text, filename, lang="fi"):
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(executor, generate_tts, text, filename, lang)
 
 # Top 25 most used languages (name, code)
 AVAILABLE_LANGUAGES = [
@@ -489,7 +581,7 @@ async def warns(interaction: discord.Interaction, user: discord.Member):
 @bot.tree.command(name="to")
 @admin_only()
 async def timeout(interaction: discord.Interaction, user: discord.Member, duration: str):
-    delta = parse_time(time)
+    delta = parse_time(duration)
     until = None if delta is None else discord.utils.utcnow() + delta
     await user.timeout(until)
     await interaction.response.send_message("⏱️ Timeout applied.")
@@ -645,9 +737,8 @@ async def console_listener():
 
 # ---------------- SOUND COMMAND ----------------
 
-@bot.tree.command(name="sound", description="Play an MP3 file from the bot folder")
-@admin_only()
-@app_commands.describe(filename="MP3 file name (example: test.mp3)")
+@bot.tree.command(name="sound", description="Play an MP3 file from the sounds folder")
+@app_commands.describe(filename="Sound name (example: test or test.mp3)")
 async def sound(interaction: discord.Interaction, filename: str):
 
     voice_client = interaction.guild.voice_client
@@ -659,21 +750,24 @@ async def sound(interaction: discord.Interaction, filename: str):
         )
         return
 
-    # Only allow simple filenames (no paths)
-    if not filename.lower().endswith(".mp3") or "/" in filename or "\\" in filename:
+    # Sanitize
+    filename = filename.lower().replace(".mp3", "").strip()
+    filename = f"{filename}.mp3"
+
+    if "/" in filename or "\\" in filename:
         await interaction.response.send_message(
-            "❌ Only .mp3 files from the bot folder are allowed.",
+            "❌ Invalid filename.",
             ephemeral=True
         )
         return
 
-    # Get folder where THIS python file is located
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(base_dir, filename)
+    sounds_dir = os.path.join(base_dir, "sounds")
+    file_path = os.path.join(sounds_dir, filename)
 
     if not os.path.isfile(file_path):
         await interaction.response.send_message(
-            f"❌ File `{filename}` not found in bot folder.",
+            f"❌ Sound `{filename}` not found in sounds folder.",
             ephemeral=True
         )
         return
@@ -690,28 +784,22 @@ async def sound(interaction: discord.Interaction, filename: str):
         ephemeral=True
     )
 
-    
-    @bot.event
+@bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    if len(message.content) < MIN_MSG_LEN:
-        return
-
-    ensure_user(message.author.id)
-    user = data[str(message.author.id)]
-
-    user["xp"] += XP_PER_MESSAGE
-    user["messages"] += 1
-
-    check_level_up(message.author.id)
-    save_data()
+    if len(message.content) >= MIN_MSG_LEN:
+        ensure_user(message.author.id)
+        user = data[str(message.author.id)]
+        user["xp"] += XP_PER_MESSAGE
+        user["messages"] += 1
+        check_level_up(message.author.id)
+        save_data()
 
     await bot.process_commands(message)
     
 @bot.tree.command(name="leave")
-@admin_only()
 async def leave(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
     if not vc:
@@ -721,6 +809,43 @@ async def leave(interaction: discord.Interaction):
     await interaction.response.send_message("👋 Disconnected.", ephemeral=True)
     
     
-# ---------------- RUN ----------------
+@bot.tree.command(name="sounds", description="Open soundboard GUI")
+async def sounds(interaction: discord.Interaction):
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    sounds_dir = os.path.join(base_dir, "sounds")
+
+    if not os.path.isdir(sounds_dir):
+        await interaction.response.send_message(
+            "❌ sounds folder not found.",
+            ephemeral=True
+        )
+        return
+
+    sound_files = sorted(
+        [f for f in os.listdir(sounds_dir) if f.lower().endswith(".mp3")]
+    )
+
+    if not sound_files:
+        await interaction.response.send_message(
+            "❌ No .mp3 files found in sounds folder.",
+            ephemeral=True
+        )
+        return
+
+    view = SoundBoard(sound_files)
+
+    await interaction.response.send_message(
+        f"🎵 **Soundboard** — Page 1 / {view.total_pages}",
+        view=view,
+        ephemeral=True
+    )
+    # ---------------- RUN ----------------
+
+if not TOKEN or TOKEN.startswith("PASTE_"):
+    raise ValueError(
+        "Missing bot token. Set DISCORD_BOT_TOKEN environment variable "
+        "or update config.json token."
+    )
 
 bot.run(TOKEN)
